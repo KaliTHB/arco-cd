@@ -1,0 +1,444 @@
+# ============================================================
+# Argo CD Server ServiceAccount
+# ============================================================
+ 
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argocd-server
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-server
+    app.kubernetes.io/part-of: argocd
+ 
+---
+# ============================================================
+# Argo CD Server ClusterRole
+# ============================================================
+ 
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: argocd-server
+  labels:
+    app.kubernetes.io/name: argocd-server
+    app.kubernetes.io/part-of: argocd
+ 
+rules:
+ 
+  # ----------------------------------------------------------
+  # Applications
+  # ----------------------------------------------------------
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - applications
+      - applications/status
+      - applications/finalizers
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+ 
+  # ----------------------------------------------------------
+  # AppProjects
+  # ----------------------------------------------------------
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - appprojects
+      - appprojects/status
+      - appprojects/finalizers
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+ 
+  # ----------------------------------------------------------
+  # ApplicationSets
+  # ----------------------------------------------------------
+  - apiGroups:
+      - argoproj.io
+    resources:
+      - applicationsets
+      - applicationsets/status
+      - applicationsets/finalizers
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+ 
+  # ----------------------------------------------------------
+  # ConfigMaps
+  # ----------------------------------------------------------
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+ 
+  # ----------------------------------------------------------
+  # Secrets
+  #
+  # WARNING:
+  # This grants broad cluster-wide Secret access.
+  # Keep only if your custom Argo CD setup requires it.
+  # ----------------------------------------------------------
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+ 
+  # ----------------------------------------------------------
+  # Namespaces
+  # ----------------------------------------------------------
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+ 
+  # ----------------------------------------------------------
+  # Services
+  # ----------------------------------------------------------
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+ 
+  # ----------------------------------------------------------
+  # Events
+  # ----------------------------------------------------------
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - patch
+ 
+---
+# ============================================================
+# Argo CD Server ClusterRoleBinding
+# ============================================================
+ 
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argocd-server
+  labels:
+    app.kubernetes.io/name: argocd-server
+    app.kubernetes.io/part-of: argocd
+ 
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: argocd-server
+ 
+subjects:
+  - kind: ServiceAccount
+    name: argocd-server
+    namespace: argocd
+ 
+---
+# ============================================================
+# Argo CD Server Deployment
+# ============================================================
+ 
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-server
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-server
+    app.kubernetes.io/part-of: argocd
+ 
+spec:
+  replicas: 1
+ 
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-server
+ 
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: argocd-server
+        app.kubernetes.io/part-of: argocd
+ 
+    spec:
+      serviceAccountName: argocd-server
+ 
+      containers:
+        - name: argocd-server
+ 
+          image: corpusacrdevtestindd360genai.azurecr.io/argoproj/argocd:v3.1.0
+ 
+          imagePullPolicy: Always
+ 
+          command:
+            - /usr/local/bin/argocd-server
+            - --insecure
+ 
+          ports:
+ 
+            # Argo CD HTTP server
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+ 
+            # Argo CD metrics
+            - name: metrics
+              containerPort: 8083
+              protocol: TCP
+ 
+          env:
+ 
+            # ------------------------------------------------
+            # Redis password
+            # ------------------------------------------------
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: argocd-redis
+                  key: auth
+                  optional: true
+ 
+          livenessProbe:
+            httpGet:
+              scheme: HTTP
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+ 
+          readinessProbe:
+            httpGet:
+              scheme: HTTP
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+ 
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+ 
+---
+# ============================================================
+# Argo CD Server Service
+#
+# Namespace: argocd
+#
+# Internal:
+#   argocd-server.argocd.svc.cluster.local:80
+#
+# Routes to:
+#   argocd-server pod :8080
+# ============================================================
+ 
+apiVersion: v1
+kind: Service
+metadata:
+  name: argocd-server
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-server
+    app.kubernetes.io/part-of: argocd
+ 
+spec:
+  type: ClusterIP
+ 
+  selector:
+    app.kubernetes.io/name: argocd-server
+ 
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+ 
+---
+# ============================================================
+# Cross-namespace proxy service
+#
+# Namespace: giva-d360
+#
+# The ingress controller watches giva-d360.
+#
+# ExternalName resolves to:
+#   argocd-server.argocd.svc.cluster.local
+#
+# Traffic:
+#
+# Ingress
+#   |
+#   v
+# argocd-server-proxy
+#   |
+#   v
+# argocd-server.argocd.svc.cluster.local
+#   |
+#   v
+# Argo CD server :8080
+# ============================================================
+ 
+apiVersion: v1
+kind: Service
+metadata:
+  name: argocd-server-proxy
+  namespace: giva-d360
+  labels:
+    app.kubernetes.io/name: argocd-server-proxy
+    app.kubernetes.io/part-of: argocd
+ 
+spec:
+  type: ExternalName
+ 
+  externalName: argocd-server.argocd.svc.cluster.local
+ 
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP
+ 
+---
+# ============================================================
+# Argo CD Ingress
+#
+# Namespace: giva-d360
+#
+# External URL:
+#   https://www.givatest.gsk.com
+#
+# TLS:
+#   Terminated at NGINX
+#
+# Backend:
+#   HTTP -> Argo CD :8080
+# ============================================================
+ 
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argocd-server
+  namespace: giva-d360
+ 
+  labels:
+    app.kubernetes.io/name: argocd-server
+    app.kubernetes.io/part-of: argocd
+ 
+  annotations:
+ 
+    # --------------------------------------------------------
+    # Argo CD is running HTTP internally.
+    # TLS is terminated by NGINX.
+    # --------------------------------------------------------
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+ 
+    # --------------------------------------------------------
+    # Do not rewrite redirects generated by backend.
+    # --------------------------------------------------------
+    nginx.ingress.kubernetes.io/proxy-redirect-off: "true"
+ 
+    # --------------------------------------------------------
+    # Disable response buffering.
+    # Useful for Argo CD streaming/SSE traffic.
+    # --------------------------------------------------------
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+ 
+    # --------------------------------------------------------
+    # HTTP/1.1 to backend.
+    # --------------------------------------------------------
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+ 
+    # --------------------------------------------------------
+    # Long-running connections.
+    # --------------------------------------------------------
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+ 
+    # --------------------------------------------------------
+    # Redirect HTTP -> HTTPS.
+    # --------------------------------------------------------
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+ 
+spec:
+  ingressClassName: giva-d360-ingress-nginx
+ 
+  tls:
+    - hosts:
+        - givatest.gsk.com
+        - www.givatest.gsk.com
+      secretName: gsk-wildcard-tls
+ 
+  rules:
+    - host: givatest.gsk.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server-proxy
+                port:
+                  number: 80
+ 
+    - host: www.givatest.gsk.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argocd-server-proxy
+                port:
+                  number: 80
